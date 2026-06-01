@@ -11,7 +11,7 @@ Criterio de parada: ||grad(x)|| < tol  o  max_iter alcanzado.
 from __future__ import annotations
 import numpy as np
 
-from core.line_search import strong_wolfe_line_search
+from core.line_search import strong_wolfe_line_search, backtracking_line_search
 
 # Nombres legibles de cada método (para mostrar en la interfaz)
 METHOD_NAMES = {
@@ -57,7 +57,8 @@ def _solve_newton_direction(H, g, n):
 
 
 def minimize(obj, x0, method="gradient", max_iter=1000, tol=1e-6,
-             c1=1e-4, c2=0.9, cg_variant="PR") -> OptimizationResult:
+             c1=1e-4, c2=0.9, cg_variant="PR",
+             line_search="wolfe", alpha0=1.0, rho=0.5) -> OptimizationResult:
     res = OptimizationResult()
     x = np.array(x0, dtype=float)
     n = obj.n_vars
@@ -96,11 +97,18 @@ def minimize(obj, x0, method="gradient", max_iter=1000, tol=1e-6,
         else:
             raise ValueError(f"Método desconocido: {method}")
 
-        # --- Búsqueda de línea con Wolfe ---
-        alpha, flag = strong_wolfe_line_search(obj, x, p, c1=c1, c2=c2)
+        # --- Búsqueda de línea (Wolfe fuerte o Backtracking) ---
+        def _line_search(direction):
+            if line_search == "backtracking":
+                return backtracking_line_search(obj, x, direction, c1=c1,
+                                                alpha0=alpha0, rho=rho)
+            return strong_wolfe_line_search(obj, x, direction, c1=c1, c2=c2,
+                                            alpha0=alpha0)
+
+        alpha, flag = _line_search(p)
         if alpha is None or flag != 0 or alpha == 0:
             p = -g  # reiniciar a gradiente
-            alpha, flag = strong_wolfe_line_search(obj, x, p, c1=c1, c2=c2)
+            alpha, flag = _line_search(p)
             if alpha is None:
                 res.stop_reason = "Detenido: no se encontró paso válido (búsqueda de línea)."
                 res.success = False

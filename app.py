@@ -48,13 +48,34 @@ with st.sidebar:
     with col_b:
         tol = st.number_input("Tolerancia", min_value=1e-15, max_value=1.0, value=1e-6, format="%.1e")
 
-    st.markdown("**Parámetros de Wolfe**")
-    col_c, col_d = st.columns(2)
-    with col_c:
-        c1 = st.number_input("c1 (Armijo)", min_value=1e-6, max_value=0.5, value=1e-4, format="%.1e")
-    with col_d:
-        c2 = st.number_input("c2 (curvatura)", min_value=0.1, max_value=0.999, value=0.9, step=0.05)
-    st.caption("Debe cumplirse 0 < c1 < c2 < 1. Sugerencia: c2=0.9 (Newton), c2=0.1 (CG).")
+    st.markdown("**Búsqueda de línea**")
+    ls_label = st.selectbox(
+        "Tipo de búsqueda de línea",
+        options=["wolfe", "backtracking"],
+        format_func=lambda v: "Wolfe (1ra y 2da condición)" if v == "wolfe"
+                              else "Backtracking (Armijo + factor de reducción)",
+    )
+
+    alpha0 = st.number_input("A₀ (paso inicial)", min_value=1e-6, max_value=100.0,
+                             value=1.0, step=0.1, format="%.4f")
+
+    rho = 0.5
+    if ls_label == "wolfe":
+        col_c, col_d = st.columns(2)
+        with col_c:
+            c1 = st.number_input("c1 (Armijo)", min_value=1e-6, max_value=0.5, value=1e-4, format="%.1e")
+        with col_d:
+            c2 = st.number_input("c2 (curvatura)", min_value=0.1, max_value=0.999, value=0.9, step=0.05)
+        st.caption("Debe cumplirse 0 < c1 < c2 < 1. Sugerencia: c2=0.9 (Newton), c2=0.1 (CG).")
+    else:
+        col_c, col_d = st.columns(2)
+        with col_c:
+            c1 = st.number_input("β (Armijo)", min_value=1e-6, max_value=0.5, value=1e-4, format="%.1e")
+        with col_d:
+            rho = st.number_input("ρ (factor de reducción)", min_value=0.05, max_value=0.95,
+                                  value=0.5, step=0.05)
+        c2 = 0.9  # no se usa en backtracking, pero se mantiene por compatibilidad
+        st.caption("Backtracking: reduce el paso multiplicándolo por ρ hasta cumplir Armijo. Solo usa la 1ra condición.")
 
     compare_all = st.checkbox("🆚 Comparar los 3 métodos (valor agregado)", value=False)
     run = st.button("▶️ Ejecutar optimización", type="primary", use_container_width=True)
@@ -81,7 +102,7 @@ if run:
         if len(x0) != n_vars:
             st.error(f"El punto de partida tiene {len(x0)} valores pero indicaste {n_vars} variables.")
             st.stop()
-        if not (0 < c1 < c2 < 1):
+        if ls_label == "wolfe" and not (0 < c1 < c2 < 1):
             st.error("Las condiciones de Wolfe requieren 0 < c1 < c2 < 1.")
             st.stop()
 
@@ -91,7 +112,8 @@ if run:
             methods = ("gradient", "conjugate_gradient", "newton") if compare_all else (method_key,)
             results = {
                 m: minimize(obj, x0, method=m, max_iter=int(max_iter),
-                            tol=tol, c1=c1, c2=c2, cg_variant=cg_variant)
+                            tol=tol, c1=c1, c2=c2, cg_variant=cg_variant,
+                            line_search=ls_label, alpha0=alpha0, rho=rho)
                 for m in methods
             }
 

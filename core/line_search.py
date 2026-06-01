@@ -1,19 +1,23 @@
 """
 core/line_search.py
 -------------------
-Búsqueda de línea que satisface las CONDICIONES DE WOLFE (versión fuerte):
-    (1ra) f(x + a*p) <= f(x) + c1 * a * grad(x)^T p           [Armijo / decrecimiento suficiente]
-    (2da) |grad(x + a*p)^T p| <= c2 * |grad(x)^T p|           [curvatura]
-Requiere 0 < c1 < c2 < 1 y que p sea dirección de descenso.
+Búsquedas de línea disponibles:
 
-Algoritmo de Nocedal & Wright, "Numerical Optimization",
-Algoritmos 3.5 (line search) y 3.6 (zoom).
+1) WOLFE FUERTE (Armijo + curvatura), Nocedal & Wright Alg. 3.5/3.6:
+       (1ra) f(x + a*p) <= f(x) + c1 * a * grad(x)^T p          [Armijo]
+       (2da) |grad(x + a*p)^T p| <= c2 * |grad(x)^T p|          [curvatura fuerte]
+   Usa paso inicial alpha0 y requiere 0 < c1 < c2 < 1.
+
+2) BACKTRACKING (solo Armijo) con factor de reducción rho:
+       parte en alpha0 y lo multiplica por rho hasta cumplir Armijo.
+   Parámetros: alpha0 (paso inicial), c1 (= beta de Armijo), rho (factor de reducción).
 """
 from __future__ import annotations
 import numpy as np
 
 
-def strong_wolfe_line_search(obj, x, p, c1=1e-4, c2=0.9, alpha_max=10.0, max_ls_iter=50):
+def strong_wolfe_line_search(obj, x, p, c1=1e-4, c2=0.9, alpha0=1.0,
+                             alpha_max=10.0, max_ls_iter=50):
     phi0 = obj.f(x)
     grad0 = obj.grad(x)
     dphi0 = float(grad0 @ p)  # phi'(0) = grad(x)^T p
@@ -43,7 +47,7 @@ def strong_wolfe_line_search(obj, x, p, c1=1e-4, c2=0.9, alpha_max=10.0, max_ls_
                 phi_lo = phi_j
         return 0.5 * (a_lo + a_hi)
 
-    a_prev, a_cur = 0.0, 1.0
+    a_prev, a_cur = 0.0, alpha0   # <-- ahora el paso inicial es alpha0
     phi_prev = phi0
     for i in range(1, max_ls_iter + 1):
         phi_cur = phi(a_cur)
@@ -57,3 +61,21 @@ def strong_wolfe_line_search(obj, x, p, c1=1e-4, c2=0.9, alpha_max=10.0, max_ls_
         a_prev, phi_prev = a_cur, phi_cur
         a_cur = min(2.0 * a_cur, alpha_max)
     return a_cur, 0
+
+
+def backtracking_line_search(obj, x, p, c1=1e-4, alpha0=1.0, rho=0.5, max_ls_iter=50):
+    """
+    Backtracking de Armijo: parte en alpha0 y reduce alpha <- rho*alpha
+    hasta cumplir  f(x + a*p) <= f(x) + c1 * a * grad(x)^T p.
+    Devuelve (alpha, flag). flag=1 si p no es dirección de descenso.
+    """
+    phi0 = obj.f(x)
+    dphi0 = float(obj.grad(x) @ p)
+    if dphi0 >= 0:  # p no es dirección de descenso
+        return None, 1
+    alpha = alpha0
+    for _ in range(max_ls_iter):
+        if obj.f(x + alpha * p) <= phi0 + c1 * alpha * dphi0:
+            return alpha, 0
+        alpha *= rho
+    return alpha, 0
