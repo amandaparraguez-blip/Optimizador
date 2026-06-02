@@ -51,13 +51,15 @@ with st.sidebar:
     st.markdown("**Búsqueda de línea**")
     ls_label = st.selectbox(
         "Tipo de búsqueda de línea",
-        options=["wolfe", "backtracking"],
-        format_func=lambda v: "Wolfe (1ra y 2da condición)" if v == "wolfe"
-                              else "Backtracking (Armijo + factor de reducción)",
+        options=["wolfe", "backtracking", "fixed"],
+        format_func=lambda v: {"wolfe": "Wolfe (1ra y 2da condición)",
+                               "backtracking": "Backtracking (Armijo + factor de reducción)",
+                               "fixed": "Paso fijo (α constante)"}[v],
     )
 
-    alpha0 = st.number_input("A₀ (paso inicial)", min_value=1e-6, max_value=100.0,
-                             value=1.0, step=0.1, format="%.4f")
+    alpha_label = "α (paso fijo)" if ls_label == "fixed" else "A₀ (paso inicial)"
+    alpha0 = st.number_input(alpha_label, min_value=1e-6, max_value=100.0,
+                             value=1.0, step=0.01, format="%.4f")
 
     rho = 0.5
     sigma = 0.5
@@ -68,7 +70,7 @@ with st.sidebar:
         with col_d:
             c2 = st.number_input("c2 (curvatura)", min_value=0.1, max_value=0.999, value=0.9, step=0.05)
         st.caption("Debe cumplirse 0 < c1 < c2 < 1. Sugerencia: c2=0.9 (Newton), c2=0.1 (CG).")
-    else:
+    elif ls_label == "backtracking":
         col_c, col_d = st.columns(2)
         with col_c:
             c1 = st.number_input("β (Armijo)", min_value=1e-6, max_value=0.9,
@@ -77,10 +79,16 @@ with st.sidebar:
             rho = st.number_input("ρ (factor de reducción)", min_value=0.05, max_value=0.95,
                                   value=0.5, step=0.05)
         sigma = st.number_input("σ (2ª condición de Wolfe, solo verificación)",
-                                min_value=0.05, max_value=0.999, value=0.5, step=0.05)
+                                min_value=0.0, max_value=0.999, value=0.5, step=0.05)
         c2 = 0.9  # no se usa en backtracking, pero se mantiene por compatibilidad
         st.caption("Backtracking: reduce el paso multiplicándolo por ρ hasta cumplir Armijo (1ra condición). "
-                   "Además se verifica aparte si el paso cumple la 2ª condición (curvatura) con σ.")
+                   "El paso encontrado depende solo de β y ρ.")
+        st.caption("ℹ️ σ solo afecta la verificación de la 2ª condición de Wolfe (✓/✗). "
+                   "No cambia el punto encontrado ni las iteraciones.")
+    else:  # fixed
+        c1, c2 = 1e-4, 0.9  # no se usan en paso fijo
+        st.caption("Paso fijo: avanza con  x_{k+1} = x_k + α·d_k  usando α constante (no hace búsqueda de "
+                   "línea). Para el método del gradiente equivale a  x_{k+1} = x_k − α·∇f(x_k).")
 
     compare_all = st.checkbox("🆚 Comparar los 3 métodos (valor agregado)", value=False)
     run = st.button("▶️ Ejecutar optimización", type="primary", use_container_width=True)

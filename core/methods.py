@@ -102,8 +102,10 @@ def minimize(obj, x0, method="gradient", max_iter=1000, tol=1e-6,
         else:
             raise ValueError(f"Método desconocido: {method}")
 
-        # --- Búsqueda de línea (Wolfe fuerte o Backtracking) ---
+        # --- Búsqueda de línea (Wolfe fuerte, Backtracking o Paso fijo) ---
         def _line_search(direction):
+            if line_search == "fixed":
+                return alpha0, 0  # paso constante, sin búsqueda
             if line_search == "backtracking":
                 return backtracking_line_search(obj, x, direction, c1=c1,
                                                 alpha0=alpha0, rho=rho)
@@ -111,7 +113,8 @@ def minimize(obj, x0, method="gradient", max_iter=1000, tol=1e-6,
                                             alpha0=alpha0)
 
         alpha, flag = _line_search(p)
-        if alpha is None or flag != 0 or alpha == 0:
+        # En paso fijo NO se reinicia ni se busca: se respeta el alpha tal cual.
+        if line_search != "fixed" and (alpha is None or flag != 0 or alpha == 0):
             p = -g  # reiniciar a gradiente
             alpha, flag = _line_search(p)
             if alpha is None:
