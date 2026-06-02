@@ -33,6 +33,9 @@ class OptimizationResult:
         self.f_history = []          # f(x) por iteración
         self.path = []               # lista de puntos x (para trayectoria 2D)
         self.success = True
+        self.line_search = "wolfe"   # tipo de búsqueda de línea usada
+        self.sigma = None            # parámetro de la 2da condición (solo backtracking)
+        self.wolfe2_history = []     # ✓/✗ de la 2da condición de Wolfe por paso (backtracking)
 
 
 def _solve_newton_direction(H, g, n):
@@ -58,8 +61,10 @@ def _solve_newton_direction(H, g, n):
 
 def minimize(obj, x0, method="gradient", max_iter=1000, tol=1e-6,
              c1=1e-4, c2=0.9, cg_variant="PR",
-             line_search="wolfe", alpha0=1.0, rho=0.5) -> OptimizationResult:
+             line_search="wolfe", alpha0=1.0, rho=0.5, sigma=0.5) -> OptimizationResult:
     res = OptimizationResult()
+    res.line_search = line_search
+    res.sigma = sigma
     x = np.array(x0, dtype=float)
     n = obj.n_vars
 
@@ -116,7 +121,16 @@ def minimize(obj, x0, method="gradient", max_iter=1000, tol=1e-6,
 
         # --- Actualizar punto ---
         x_new = x + alpha * p
-        g_prev, x, g = g, x_new, obj.grad(x_new)
+        g_new = obj.grad(x_new)
+
+        # Chequeo (informativo) de la 2da condición de Wolfe sobre el paso aceptado:
+        #   grad(x_new)^T p  >=  sigma * grad(x)^T p     (condición de curvatura)
+        if line_search == "backtracking":
+            dphi0 = float(g @ p)
+            dphi_new = float(g_new @ p)
+            res.wolfe2_history.append(bool(dphi_new >= sigma * dphi0))
+
+        g_prev, x, g = g, x_new, g_new
 
         res.path.append(x.copy())
         res.error_history.append(float(np.linalg.norm(g)))

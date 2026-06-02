@@ -60,6 +60,7 @@ with st.sidebar:
                              value=1.0, step=0.1, format="%.4f")
 
     rho = 0.5
+    sigma = 0.5
     if ls_label == "wolfe":
         col_c, col_d = st.columns(2)
         with col_c:
@@ -74,8 +75,11 @@ with st.sidebar:
         with col_d:
             rho = st.number_input("ρ (factor de reducción)", min_value=0.05, max_value=0.95,
                                   value=0.5, step=0.05)
+        sigma = st.number_input("σ (2ª condición de Wolfe, solo verificación)",
+                                min_value=0.05, max_value=0.999, value=0.5, step=0.05)
         c2 = 0.9  # no se usa en backtracking, pero se mantiene por compatibilidad
-        st.caption("Backtracking: reduce el paso multiplicándolo por ρ hasta cumplir Armijo. Solo usa la 1ra condición.")
+        st.caption("Backtracking: reduce el paso multiplicándolo por ρ hasta cumplir Armijo (1ra condición). "
+                   "Además se verifica aparte si el paso cumple la 2ª condición (curvatura) con σ.")
 
     compare_all = st.checkbox("🆚 Comparar los 3 métodos (valor agregado)", value=False)
     run = st.button("▶️ Ejecutar optimización", type="primary", use_container_width=True)
@@ -91,6 +95,15 @@ def show_result_block(key, r, tol):
     xstr = ",  ".join(f"x{i+1} = {v:.6f}" for i, v in enumerate(r.x_min))
     st.success(f"**Punto mínimo encontrado:**  ({xstr})")
     st.info(f"**Criterio de parada:** {r.stop_reason}")
+
+    # Resumen de la 2ª condición de Wolfe sobre el paso final (solo backtracking)
+    if r.line_search == "backtracking" and r.wolfe2_history:
+        if r.wolfe2_history[-1]:
+            st.success(f"**2ª condición de Wolfe:** el paso final ✅ **cumple** la condición de "
+                       f"curvatura (σ = {r.sigma}).")
+        else:
+            st.warning(f"**2ª condición de Wolfe:** el paso final ❌ **no cumple** la condición de "
+                       f"curvatura (σ = {r.sigma}). Es normal en backtracking y no es un error.")
 
 
 # ----------------------------------------------------------------------
@@ -113,7 +126,7 @@ if run:
             results = {
                 m: minimize(obj, x0, method=m, max_iter=int(max_iter),
                             tol=tol, c1=c1, c2=c2, cg_variant=cg_variant,
-                            line_search=ls_label, alpha0=alpha0, rho=rho)
+                            line_search=ls_label, alpha0=alpha0, rho=rho, sigma=sigma)
                 for m in methods
             }
 
@@ -146,6 +159,11 @@ if run:
                     data[f"x{i+1}"] = path[:, i]
                 data["f(x)"] = r.f_history
                 data["||∇f||"] = r.error_history
+                # Columna de la 2ª condición de Wolfe (solo backtracking)
+                if r.line_search == "backtracking" and r.wolfe2_history:
+                    col = ["—"] + ["✓ cumple" if w else "✗ no cumple" for w in r.wolfe2_history]
+                    col = (col + ["—"] * len(path))[:len(path)]  # alinear longitud
+                    data[f"2ª Wolfe (σ={r.sigma})"] = col
                 df = pd.DataFrame(data)
                 st.dataframe(df, use_container_width=True, height=250)
                 st.download_button(
