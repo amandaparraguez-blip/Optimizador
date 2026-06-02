@@ -71,7 +71,8 @@ with st.sidebar:
     else:
         col_c, col_d = st.columns(2)
         with col_c:
-            c1 = st.number_input("β (Armijo)", min_value=1e-6, max_value=0.5, value=1e-4, format="%.1e")
+            c1 = st.number_input("β (Armijo)", min_value=1e-6, max_value=0.9,
+                                 value=0.0001, step=0.05, format="%.4f")
         with col_d:
             rho = st.number_input("ρ (factor de reducción)", min_value=0.05, max_value=0.95,
                                   value=0.5, step=0.05)
