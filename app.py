@@ -90,7 +90,7 @@ with st.sidebar:
         st.caption("Paso fijo: avanza con  x_{k+1} = x_k + α·d_k  usando α constante (no hace búsqueda de "
                    "línea). Para el método del gradiente equivale a  x_{k+1} = x_k − α·∇f(x_k).")
 
-    compare_all = st.checkbox("🆚 Comparar los 3 métodos (valor agregado)", value=False)
+    compare_all = st.checkbox("🆚 Comparar los 3 métodos ", value=False)
     run = st.button("▶️ Ejecutar optimización", type="primary", use_container_width=True)
 
 
