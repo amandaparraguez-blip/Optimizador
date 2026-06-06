@@ -9,10 +9,29 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from core import ObjectiveFunction, minimize, METHOD_NAMES
-from ui import plot_convergence, plot_contour
+from core import ObjectiveFunction, minimize, METHOD_NAMES, classify_point
+from ui import plot_convergence, plot_contour, plot_basins, plot_step_sizes
 
 st.set_page_config(page_title="Optimizador | Métodos de Optimización", page_icon="📉", layout="wide")
+
+# --- Tema de colores (oscuro con botón degradado) ---
+st.markdown("""
+<style>
+[data-testid="stAppViewContainer"] { background-color: #0F172A; }
+[data-testid="stHeader"] { background-color: #0F172A; }
+[data-testid="stSidebar"] { background-color: #111827; }
+h1, h2, h3 { color: #FFFFFF; }
+.stButton > button {
+    background: linear-gradient(90deg, #2563EB, #7C3AED);
+    color: white;
+    border-radius: 12px;
+    border: none;
+    padding: 10px 20px;
+    font-weight: bold;
+}
+.stButton > button:hover { filter: brightness(1.1); color: white; }
+</style>
+""", unsafe_allow_html=True)
 
 st.title("📉 Minimización de funciones con condiciones de Wolfe")
 st.caption(
@@ -24,7 +43,7 @@ st.caption(
 # Panel lateral: datos de entrada
 # ----------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ Datos de entrada")
+    st.header("Datos de entrada")
     n_vars = st.number_input("Número de variables (n)", min_value=1, max_value=10, value=2, step=1)
     method_key = st.selectbox("Método de optimización", options=list(METHOD_NAMES.keys()),
                               format_func=lambda k: METHOD_NAMES[k])
@@ -36,7 +55,9 @@ with st.sidebar:
                               horizontal=True)
 
     st.markdown("**Función objetivo** — usa `x1, x2, ...`, `**` o `^` para potencias")
-    expr_str = st.text_input("f(x) =", value="100*(x2 - x1**2)**2 + (1 - x1)**2")
+    expr_str = st.text_area("f(x) =", value="100*(x2 - x1**2)**2 + (1 - x1)**2",
+                            height=100,
+                            help="Puedes escribir funciones largas; el cuadro crece y es redimensionable.")
 
     st.markdown("**Punto de partida** (separado por comas)")
     x0_str = st.text_input("x0 =", value="-1.2, 1.0")
@@ -90,11 +111,14 @@ with st.sidebar:
         st.caption("Paso fijo: avanza con  x_{k+1} = x_k + α·d_k  usando α constante (no hace búsqueda de "
                    "línea). Para el método del gradiente equivale a  x_{k+1} = x_k − α·∇f(x_k).")
 
-    compare_all = st.checkbox("🆚 Comparar los 3 métodos ", value=False)
+    compare_all = st.checkbox("🆚 Comparar los 3 métodos", value=False)
+    show_basins = st.checkbox("🗺️ Mapa de cuencas de atracción (solo n=2)", value=False,
+                              help="Corre el método desde una grilla de puntos y pinta el plano "
+                                   "según a qué mínimo llega cada uno. Puede tardar unos segundos.")
     run = st.button("▶️ Ejecutar optimización", type="primary", use_container_width=True)
 
 
-def show_result_block(key, r, tol):
+def show_result_block(key, r, tol, obj):
     st.subheader(f"📌 Resultados — {METHOD_NAMES[key]}")
     c1_, c2_, c3_, c4_ = st.columns(4)
     c1_.metric("f(x*) — valor mínimo", f"{r.f_min:.6g}")
@@ -104,6 +128,20 @@ def show_result_block(key, r, tol):
     xstr = ",  ".join(f"x{i+1} = {v:.6f}" for i, v in enumerate(r.x_min))
     st.success(f"**Punto mínimo encontrado:**  ({xstr})")
     st.info(f"**Criterio de parada:** {r.stop_reason}")
+
+    # Clasificación del punto final según el Hessiano (mínimo / máximo / silla)
+    tipo, eig, es_critico = classify_point(obj, r.x_min)
+    eig_txt = ", ".join(f"{e:.4g}" for e in eig)
+    etiqueta = {"mínimo": "MÍNIMO local ✅", "máximo": "MÁXIMO local 🔺",
+                "silla": "PUNTO SILLA ⚠️", "degenerado": "DEGENERADO (no concluyente) ❔"}[tipo]
+    detalle = {"mínimo": "Hessiano definido positivo (todos los autovalores > 0).",
+               "máximo": "Hessiano definido negativo (todos los autovalores < 0).",
+               "silla": "Hessiano indefinido (autovalores de distinto signo).",
+               "degenerado": "Hay un autovalor ≈ 0; la 2ª derivada no concluye."}[tipo]
+    msg = f"**Clasificación del punto:** {etiqueta} — {detalle}  \nAutovalores del Hessiano: [{eig_txt}]"
+    if not es_critico:
+        msg += "  \n⚠️ Nota: el gradiente aún no es cero aquí, así que todavía no es un punto crítico (faltan iteraciones)."
+    (st.success if tipo == "mínimo" and es_critico else st.warning)(msg)
 
     # Resumen de la 2ª condición de Wolfe sobre el paso final (solo backtracking)
     if r.line_search == "backtracking" and r.wolfe2_history:
@@ -128,7 +166,7 @@ if run:
             st.error("Las condiciones de Wolfe requieren 0 < c1 < c2 < 1.")
             st.stop()
 
-        obj = ObjectiveFunction(expr_str, n_vars)
+        obj = ObjectiveFunction(expr_str.replace("\n", " ").strip(), n_vars)
 
         with st.spinner("Calculando..."):
             methods = ("gradient", "conjugate_gradient", "newton") if compare_all else (method_key,)
@@ -140,7 +178,7 @@ if run:
             }
 
         for key, r in results.items():
-            show_result_block(key, r, tol)
+            show_result_block(key, r, tol, obj)
             st.divider()
 
         gcol1, gcol2 = st.columns(2)
@@ -149,17 +187,39 @@ if run:
             st.pyplot(plot_convergence(results))
         with gcol2:
             if n_vars == 2:
-                st.markdown("#### Trayectoria (valor agregado)")
+                st.markdown("#### Trayectoria de optimización")
                 st.pyplot(plot_contour(obj, results))
             else:
                 st.info("La trayectoria sobre curvas de nivel solo se grafica para n = 2 variables.")
 
-        with st.expander("🧮 Valor agregado: gradiente y Hessiano simbólicos"):
+        # Gráfico del tamaño de paso α — solo en backtracking (donde se usa el factor de reducción)
+        if ls_label == "backtracking":
+            st.markdown("#### Tamaño de paso α por iteración")
+            st.pyplot(plot_step_sizes(results))
+            st.caption("Muestra el α aceptado en cada iteración (parte en α₀ y baja por ρ si hace falta). "
+                       "Si comparas los 3 métodos, aparecen los tres.")
+
+        # Mapa de cuencas de atracción (característica distintiva, solo n=2)
+        if show_basins:
+            st.markdown("#### 🗺️ Mapa de cuencas de atracción")
+            if n_vars != 2:
+                st.info("El mapa de cuencas solo está disponible para funciones de 2 variables.")
+            else:
+                ls_kwargs = dict(c1=c1, c2=c2, cg_variant=cg_variant,
+                                 line_search=ls_label, alpha0=alpha0, rho=rho, sigma=sigma)
+                with st.spinner("Corriendo el método desde cientos de puntos de partida..."):
+                    fig_b, n_min = plot_basins(obj, minimize, method_key, ls_kwargs)
+                st.pyplot(fig_b)
+                st.caption(f"Cada color es una región cuyos puntos de partida terminan en el mismo "
+                           f"mínimo (se encontraron {n_min}). El gris indica puntos que no convergieron. "
+                           f"Método usado: {METHOD_NAMES[method_key]}.")
+
+        with st.expander("Gradiente y Hessiano simbólicos"):
             st.latex(r"f(x) = " + obj.latex_f())
             st.latex(r"\nabla f(x) = " + obj.latex_grad())
             st.latex(r"\nabla^2 f(x) = " + obj.latex_hess())
 
-        with st.expander("📋 Valor agregado: historial completo de iteraciones"):
+        with st.expander("Historial completo de iteraciones"):
             for key, r in results.items():
                 st.markdown(f"**{METHOD_NAMES[key]}**")
                 path = np.array(r.path)
@@ -168,6 +228,22 @@ if run:
                     data[f"x{i+1}"] = path[:, i]
                 data["f(x)"] = r.f_history
                 data["||∇f||"] = r.error_history
+
+                # Helper para alinear listas de longitud n_iter con las n_iter+1 filas
+                def _align(values, fmt="{:.6g}"):
+                    col = ["—"] + [fmt.format(v) for v in values]
+                    return (col + ["—"] * len(path))[:len(path)]
+
+                # α (paso aceptado en cada iteración) — útil sobre todo en backtracking/paso fijo
+                if r.alpha_history:
+                    data["α usado"] = _align(r.alpha_history)
+                # Lados de la condición de Armijo:  LHS = f(x_k+αp)  ≤  RHS = f(x_k)+c1·α·∇f·p
+                if r.armijo_lhs_history:
+                    data["Armijo izq: f(x+αp)"] = _align(r.armijo_lhs_history)
+                    data["Armijo der (≥)"] = _align(r.armijo_rhs_history)
+                    cumple = [l <= rr for l, rr in zip(r.armijo_lhs_history, r.armijo_rhs_history)]
+                    col = ["—"] + ["✓" if c else "✗" for c in cumple]
+                    data["¿Cumple Armijo?"] = (col + ["—"] * len(path))[:len(path)]
                 # Columna de la 2ª condición de Wolfe (solo backtracking)
                 if r.line_search == "backtracking" and r.wolfe2_history:
                     col = ["—"] + ["✓ cumple" if w else "✗ no cumple" for w in r.wolfe2_history]

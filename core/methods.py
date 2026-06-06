@@ -36,6 +36,9 @@ class OptimizationResult:
         self.line_search = "wolfe"   # tipo de búsqueda de línea usada
         self.sigma = None            # parámetro de la 2da condición (solo backtracking)
         self.wolfe2_history = []     # ✓/✗ de la 2da condición de Wolfe por paso (backtracking)
+        self.alpha_history = []      # α (tamaño de paso) aceptado en cada iteración
+        self.armijo_lhs_history = [] # lado izquierdo de Armijo: f(x_k + α p)
+        self.armijo_rhs_history = [] # lado derecho de Armijo: f(x_k) + c1·α·∇f(x_k)^T p
 
 
 def _solve_newton_direction(H, g, n):
@@ -57,6 +60,31 @@ def _solve_newton_direction(H, g, n):
         except np.linalg.LinAlgError:
             tau = max(2.0 * tau, beta)
     return -g  # último recurso: descenso de gradiente
+
+
+def classify_point(obj, x, tol=1e-6):
+    """
+    Clasifica el punto x según el Hessiano:
+        - todos los autovalores > 0  -> mínimo local (Hessiano definido positivo)
+        - todos < 0                  -> máximo local (definido negativo)
+        - signos mezclados           -> punto silla
+        - alguno ≈ 0                 -> caso degenerado (no concluyente con 2do orden)
+    Devuelve (tipo, autovalores, es_critico).
+    """
+    g = obj.grad(np.array(x, dtype=float))
+    es_critico = bool(np.linalg.norm(g) < 1e-3)
+    H = obj.hess(np.array(x, dtype=float))
+    eig = np.linalg.eigvalsh(H) if H.shape[0] > 1 else np.array([H[0, 0]])
+    eps = 1e-8
+    if np.any(np.abs(eig) < eps):
+        tipo = "degenerado"
+    elif np.all(eig > 0):
+        tipo = "mínimo"
+    elif np.all(eig < 0):
+        tipo = "máximo"
+    else:
+        tipo = "silla"
+    return tipo, eig, es_critico
 
 
 def minimize(obj, x0, method="gradient", max_iter=1000, tol=1e-6,
@@ -125,11 +153,19 @@ def minimize(obj, x0, method="gradient", max_iter=1000, tol=1e-6,
         # --- Actualizar punto ---
         x_new = x + alpha * p
         g_new = obj.grad(x_new)
+        f_old = res.f_history[-1]
+        f_new = obj.f(x_new)
+        dphi0 = float(g @ p)
+
+        # Registrar el paso α y los dos lados de la condición de Armijo:
+        #   LHS = f(x_k + α p)        ;   RHS = f(x_k) + c1·α·∇f(x_k)^T p
+        res.alpha_history.append(float(alpha))
+        res.armijo_lhs_history.append(float(f_new))
+        res.armijo_rhs_history.append(float(f_old + c1 * alpha * dphi0))
 
         # Chequeo (informativo) de la 2da condición de Wolfe sobre el paso aceptado:
         #   grad(x_new)^T p  >=  sigma * grad(x)^T p     (condición de curvatura)
         if line_search == "backtracking":
-            dphi0 = float(g @ p)
             dphi_new = float(g_new @ p)
             res.wolfe2_history.append(bool(dphi_new >= sigma * dphi0))
 
@@ -137,7 +173,7 @@ def minimize(obj, x0, method="gradient", max_iter=1000, tol=1e-6,
 
         res.path.append(x.copy())
         res.error_history.append(float(np.linalg.norm(g)))
-        res.f_history.append(obj.f(x))
+        res.f_history.append(f_new)
         res.n_iter = k
 
         if not np.all(np.isfinite(x)):

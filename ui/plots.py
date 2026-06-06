@@ -63,3 +63,78 @@ def plot_contour(obj, results: dict):
     ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
     return fig
+
+
+def plot_basins(obj, minimize_fn, method, ls_kwargs, region=(-6, 6, -6, 6),
+                grid_n=40, max_iter=200, tol=1e-4):
+    """
+    Mapa de cuencas de atracción (solo n=2): corre el método desde una grilla
+    de puntos de partida y pinta el plano según a qué mínimo llega cada uno.
+    """
+    import matplotlib.colors as mcolors
+
+    x_lo, x_hi, y_lo, y_hi = region
+    xs = np.linspace(x_lo, x_hi, grid_n)
+    ys = np.linspace(y_lo, y_hi, grid_n)
+    labels = np.full((grid_n, grid_n), -1, dtype=int)
+    minima = []  # representantes de cada mínimo encontrado
+
+    def find_label(pt):
+        for idx, m in enumerate(minima):
+            if np.linalg.norm(pt - m) < 0.25:
+                return idx
+        minima.append(pt)
+        return len(minima) - 1
+
+    for iy, y in enumerate(ys):
+        for ix, x in enumerate(xs):
+            try:
+                r = minimize_fn(obj, np.array([x, y]), method=method,
+                                max_iter=max_iter, tol=tol, **ls_kwargs)
+                if r.final_error < 1e-2 and np.all(np.isfinite(r.x_min)):
+                    labels[iy, ix] = find_label(np.round(r.x_min, 1))
+            except Exception:
+                pass
+
+    n_min = len(minima)
+    # Paleta: gris para "no convergió" (-1) + colores para cada mínimo
+    palette = ["#888888"] + list(plt.cm.tab10(np.linspace(0, 1, max(n_min, 1))))
+    cmap = mcolors.ListedColormap(palette[: n_min + 1])
+    disp = labels + 1  # desplazar para que -1 -> 0 (gris)
+
+    fig, ax = plt.subplots(figsize=(7.5, 6))
+    ax.pcolormesh(xs, ys, disp, cmap=cmap, vmin=0, vmax=n_min, shading="auto")
+    # marcar los mínimos encontrados
+    for idx, m in enumerate(minima):
+        ax.plot(m[0], m[1], "*", color="white", markersize=16, markeredgecolor="black")
+        ax.annotate(f"({m[0]:.2f}, {m[1]:.2f})", (m[0], m[1]),
+                    textcoords="offset points", xytext=(8, 6),
+                    fontsize=8, color="white",
+                    bbox=dict(boxstyle="round,pad=0.2", fc="black", alpha=0.5))
+    ax.set_xlabel("x1"); ax.set_ylabel("x2")
+    ax.set_title(f"Mapa de cuencas de atracción ({n_min} mínimos encontrados)")
+    fig.tight_layout()
+    return fig, n_min
+
+
+def plot_step_sizes(results):
+    """
+    Gráfico del tamaño de paso α aceptado en cada iteración (útil en backtracking,
+    donde α puede reducirse). Muestra los métodos disponibles en 'results'.
+    """
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    algo = False
+    for key, r in results.items():
+        if r.alpha_history:
+            iters = range(1, len(r.alpha_history) + 1)
+            ax.plot(iters, r.alpha_history, marker="o", markersize=4, linewidth=1.6,
+                    drawstyle="steps-post", label=METHOD_NAMES[key])
+            algo = True
+    ax.set_xlabel("Número de iteración")
+    ax.set_ylabel("Tamaño de paso α")
+    ax.set_title("Tamaño de paso α por iteración")
+    ax.grid(True, alpha=0.3)
+    if algo:
+        ax.legend()
+    fig.tight_layout()
+    return fig
