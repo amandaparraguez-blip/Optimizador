@@ -9,10 +9,12 @@ Interfaz: HUD / dashboard técnico con tema claro/oscuro conmutable.
 Toda la matemática vive en core/ y los gráficos en ui/ (no se modifican aquí).
 """
 import contextlib
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
+import plotly.graph_objects as go
 import streamlit as st
 
 from core import ObjectiveFunction, minimize, METHOD_NAMES, classify_point
@@ -104,13 +106,39 @@ def mpl_theme(pal):
 def inject_css(pal):
     st.markdown(f"""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap');
+
 :root {{
   --bg:{pal['bg']}; --bg2:{pal['bg2']}; --panel:{pal['panel']}; --panel2:{pal['panel2']};
   --border:{pal['border']}; --border-hi:{pal['border_hi']};
   --text:{pal['text']}; --muted:{pal['muted']};
   --accent:{pal['accent']}; --accent2:{pal['accent2']};
   --good:{pal['good']}; --warn:{pal['warn']}; --bad:{pal['bad']};
+  --font-display:'Space Grotesk', system-ui, sans-serif;
+  --font-body:'Inter', system-ui, sans-serif;
+  --font-mono:'JetBrains Mono', ui-monospace, monospace;
 }}
+
+/* ---- Tipografía premium ---- */
+html, body, [class*="css"], p, label, span, li, [data-testid="stMarkdownContainer"] {{ font-family: var(--font-body); }}
+h1, h2, h3, h4, h5, .hud-title h1, .result-head b, .sec {{ font-family: var(--font-display) !important; }}
+[data-testid="stMetricValue"], code, .mono {{ font-family: var(--font-mono) !important; }}
+
+/* ---- Animaciones sutiles ---- */
+@keyframes fadeUp {{ from {{ opacity:0; transform: translateY(8px); }} to {{ opacity:1; transform:none; }} }}
+@keyframes glowIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
+.block-container [data-testid="stVerticalBlock"] > div:has(> [data-testid="stMetric"]),
+.hud-header, .result-head, [data-testid="stExpander"], .hero, .telemetry {{
+    animation: fadeUp .45s cubic-bezier(.21,.61,.35,1) both;
+}}
+[data-testid="stMetric"] {{ transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }}
+[data-testid="stMetric"]:hover {{
+    transform: translateY(-3px);
+    border-color: var(--border-hi);
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 22%, transparent);
+}}
+.badge {{ transition: border-color .18s, color .18s; }}
+.badge:hover {{ border-color: var(--accent); color: var(--text); }}
 
 /* ---- Fondos base ---- */
 [data-testid="stAppViewContainer"] {{ background: var(--bg); }}
@@ -232,6 +260,50 @@ hr {{ border-color: var(--border); }}
 }}
 .result-head svg {{ width:18px; height:18px; color:var(--accent); }}
 .result-head b {{ font-size:1.02rem; }}
+
+/* ---- Pantalla de bienvenida (hero) ---- */
+.hero {{
+    position:relative; overflow:hidden;
+    border:1px solid var(--border); border-radius:20px; padding:34px 30px;
+    background:
+      radial-gradient(600px 240px at 18% -20%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 60%),
+      radial-gradient(500px 240px at 100% 120%, color-mix(in srgb, var(--accent2) 18%, transparent), transparent 60%),
+      linear-gradient(180deg, var(--panel), var(--panel2));
+}}
+.hero h2 {{ font-size:1.7rem; margin:0 0 6px; }}
+.hero .lead {{ color:var(--muted); font-size:.98rem; max-width:62ch; }}
+.hero .pills {{ display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }}
+.hero .pill {{
+    display:inline-flex; align-items:center; gap:8px; font-size:.82rem; color:var(--text);
+    border:1px solid var(--border); border-radius:12px; padding:9px 14px; background:var(--panel2);
+}}
+.hero .pill svg {{ width:15px; height:15px; color:var(--accent); }}
+.hero .ghost-metrics {{ display:flex; gap:14px; flex-wrap:wrap; margin-top:22px; }}
+.gm {{
+    flex:1; min-width:140px; border:1px dashed var(--border); border-radius:14px; padding:14px 16px;
+    background: color-mix(in srgb, var(--panel) 60%, transparent);
+}}
+.gm .k {{ color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; }}
+.gm .v {{ font-family:var(--font-mono); font-size:1.35rem; color:var(--muted); opacity:.5; }}
+
+/* ---- Telemetría (estado en vivo) ---- */
+.telemetry {{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;
+    margin: 4px 0 14px;
+}}
+.tcell {{
+    display:flex; align-items:center; gap:10px;
+    border:1px solid var(--border); border-radius:13px; padding:10px 14px;
+    background: linear-gradient(180deg, var(--panel), var(--panel2)); min-width:150px;
+}}
+.tcell .ico {{ display:grid; place-items:center; width:30px; height:30px; border-radius:9px;
+    background: color-mix(in srgb, var(--accent) 16%, transparent); color:var(--accent); }}
+.tcell .tx .k {{ color:var(--muted); font-size:.68rem; text-transform:uppercase; letter-spacing:.07em; }}
+.tcell .tx .v {{ font-family:var(--font-mono); font-size:.96rem; color:var(--text); font-weight:500; }}
+.tcell.ok {{ border-color: color-mix(in srgb, var(--good) 55%, var(--border)); }}
+.tcell.ok .ico {{ background: color-mix(in srgb, var(--good) 18%, transparent); color:var(--good); }}
+.tcell.warn {{ border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }}
+.tcell.warn .ico {{ background: color-mix(in srgb, var(--warn) 18%, transparent); color:var(--warn); }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -260,6 +332,13 @@ _ICON_PATHS = {
     "moon":      '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
     "sun":       '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="18.4" y1="18.4" x2="19.8" y2="19.8"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.2" y1="19.8" x2="5.6" y2="18.4"/><line x1="18.4" y1="5.6" x2="19.8" y2="4.2"/>',
     "pin":       '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+    "zap":       '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    "download":  '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+    "cpu":       '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>',
+    "check":     '<path d="M20 6 9 17l-5-5"/>',
+    "alert":     '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    "hash":      '<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>',
+    "compass":   '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
 }
 
 
@@ -493,6 +572,166 @@ def panel_title(text, icon_name):
 
 
 # ======================================================================
+# Gráficos interactivos (Plotly) — SOLO leen datos que core ya devuelve.
+# La lógica matemática y los plots de matplotlib (ui/plots.py) no se tocan.
+# ======================================================================
+SERIES_COLORS = ["#5B8CFF", "#A06BFF", "#34D399"]  # por método (orden estable)
+
+
+def _plotly_layout(pal, title, xlab, ylab, height=420):
+    return dict(
+        title=dict(text=title, font=dict(size=15, color=pal["mpl_text"])),
+        paper_bgcolor=pal["mpl_face"], plot_bgcolor=pal["mpl_axes"],
+        font=dict(color=pal["mpl_text"], family="Inter, sans-serif"),
+        xaxis=dict(title=xlab, gridcolor=pal["mpl_grid"], zerolinecolor=pal["mpl_grid"]),
+        yaxis=dict(title=ylab, gridcolor=pal["mpl_grid"], zerolinecolor=pal["mpl_grid"]),
+        margin=dict(l=60, r=20, t=46, b=46), height=height,
+        legend=dict(bgcolor="rgba(0,0,0,0)"),
+        hovermode="x unified",
+    )
+
+
+def plotly_convergence(results, pal):
+    fig = go.Figure()
+    for i, (key, r) in enumerate(results.items()):
+        fig.add_trace(go.Scatter(
+            y=r.error_history, x=list(range(len(r.error_history))),
+            mode="lines+markers", name=METHOD_NAMES[key],
+            line=dict(color=SERIES_COLORS[i % len(SERIES_COLORS)], width=2),
+            marker=dict(size=5),
+            hovertemplate="iter %{x}<br>||∇f|| = %{y:.3e}<extra></extra>",
+        ))
+    lay = _plotly_layout(pal, "Convergencia: error ||∇f|| vs. iteraciones",
+                         "Número de iteraciones", "||∇f||  (escala log)")
+    lay["yaxis"]["type"] = "log"
+    fig.update_layout(**lay)
+    return fig
+
+
+def plotly_contour(obj, results, pal):
+    """Curvas de nivel interactivas + trayectorias (solo n=2). Hover muestra f."""
+    all_pts = np.vstack([np.array(r.path) for r in results.values()])
+    x_lo, x_hi = all_pts[:, 0].min(), all_pts[:, 0].max()
+    y_lo, y_hi = all_pts[:, 1].min(), all_pts[:, 1].max()
+    pad_x = max(0.5, 0.25 * (x_hi - x_lo))
+    pad_y = max(0.5, 0.25 * (y_hi - y_lo))
+    xs = np.linspace(x_lo - pad_x, x_hi + pad_x, 120)
+    ys = np.linspace(y_lo - pad_y, y_hi + pad_y, 120)
+    X, Y = np.meshgrid(xs, ys)
+    Z = np.empty_like(X)
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
+            try:
+                Z[i, j] = obj.f(np.array([X[i, j], Y[i, j]]))
+            except Exception:
+                Z[i, j] = np.nan
+
+    fig = go.Figure()
+    fig.add_trace(go.Contour(
+        x=xs, y=ys, z=Z, colorscale="Viridis", opacity=0.92,
+        contours=dict(showlines=True), colorbar=dict(title="f(x)"),
+        hovertemplate="x1=%{x:.3f}<br>x2=%{y:.3f}<br>f=%{z:.4g}<extra></extra>",
+    ))
+    for i, (key, r) in enumerate(results.items()):
+        p = np.array(r.path)
+        col = SERIES_COLORS[i % len(SERIES_COLORS)]
+        fig.add_trace(go.Scatter(
+            x=p[:, 0], y=p[:, 1], mode="lines+markers", name=METHOD_NAMES[key],
+            line=dict(color=col, width=2), marker=dict(size=5, color=col),
+            hovertemplate="x1=%{x:.4f}<br>x2=%{y:.4f}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=[p[-1, 0]], y=[p[-1, 1]], mode="markers", showlegend=False,
+            marker=dict(symbol="star", size=15, color=col,
+                        line=dict(color="#000", width=1)),
+            hovertemplate="mínimo<extra></extra>",
+        ))
+    p0 = np.array(list(results.values())[0].path)[0]
+    fig.add_trace(go.Scatter(
+        x=[p0[0]], y=[p0[1]], mode="markers", name="Punto inicial",
+        marker=dict(symbol="square", size=10, color=pal["mpl_text"]),
+    ))
+    fig.update_layout(**_plotly_layout(
+        pal, "Trayectoria sobre curvas de nivel (interactivo)", "x1", "x2", height=520))
+    return fig
+
+
+def render_telemetry(results, method_key, n_vars, ls_label, compare_all, tol):
+    """Tarjeta de estado en vivo (telemetría del HUD)."""
+    last = list(results.values())[-1]
+    converged = last.success and last.final_error < tol * 10
+    ls_name = {"wolfe": "Wolfe", "backtracking": "Backtracking", "fixed": "Paso fijo"}[ls_label]
+    method_txt = "3 métodos" if compare_all else METHOD_NAMES[method_key]
+    state_cls = "ok" if converged else "warn"
+    state_ico = icon("check") if converged else icon("alert")
+    state_txt = "Convergió" if converged else "Parcial"
+
+    def cell(ico, k, v, cls=""):
+        return (f'<div class="tcell {cls}"><div class="ico">{ico}</div>'
+                f'<div class="tx"><div class="k">{k}</div><div class="v">{v}</div></div></div>')
+
+    html = '<div class="telemetry">'
+    html += cell(icon("cpu"), "Método", method_txt)
+    html += cell(icon("hash"), "Variables", f"n = {n_vars}")
+    html += cell(icon("ruler"), "Búsqueda", ls_name)
+    html += cell(icon("compass"), "Iteraciones", f"{last.n_iter}")
+    html += cell(icon("zap"), "Error final", f"{last.final_error:.2e}")
+    html += cell(state_ico, "Estado", state_txt, state_cls)
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def build_report_html(results, obj, expr_str, x0, params, pal):
+    """Reporte autocontenido (HTML imprimible a PDF) con parámetros y resultados."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    rows = ""
+    for key, r in results.items():
+        tipo, _, _ = classify_point(obj, r.x_min)
+        xstr = ", ".join(f"{v:.6f}" for v in r.x_min)
+        rows += f"""
+        <tr>
+          <td><b>{METHOD_NAMES[key]}</b></td>
+          <td>{r.f_min:.6g}</td>
+          <td>{r.n_iter}</td>
+          <td>{r.final_error:.3e}</td>
+          <td>({xstr})</td>
+          <td>{tipo}</td>
+          <td>{'Sí' if r.success else 'Parcial'}</td>
+        </tr>"""
+
+    plist = "".join(f"<li><b>{k}:</b> {v}</li>" for k, v in params.items())
+    return f"""<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<title>Reporte de optimización</title>
+<style>
+  body {{ font-family:'Segoe UI',Arial,sans-serif; color:#0E1A2F; max-width:900px; margin:40px auto; padding:0 20px; }}
+  h1 {{ border-bottom:3px solid {pal['accent']}; padding-bottom:8px; }}
+  .meta {{ color:#5A6B86; font-size:.9rem; margin-bottom:20px; }}
+  .box {{ border:1px solid #D7E0EE; border-radius:10px; padding:14px 18px; margin:14px 0; background:#F7FAFF; }}
+  code {{ background:#EEF3FB; padding:2px 6px; border-radius:5px; font-family:Consolas,monospace; }}
+  table {{ width:100%; border-collapse:collapse; margin-top:10px; font-size:.88rem; }}
+  th, td {{ border:1px solid #D7E0EE; padding:8px 10px; text-align:left; }}
+  th {{ background:{pal['accent']}; color:#fff; }}
+  tr:nth-child(even) td {{ background:#F7FAFF; }}
+  ul {{ columns:2; }}
+  @media print {{ body {{ margin:0; }} }}
+</style></head><body>
+<h1>Reporte de optimización — Métodos de Optimización</h1>
+<div class="meta">Generado: {ts}</div>
+<div class="box"><b>Función objetivo:</b> <code>f(x) = {expr_str}</code><br>
+<b>Punto de partida:</b> <code>x0 = ({', '.join(f'{v:g}' for v in x0)})</code></div>
+<h3>Parámetros</h3>
+<div class="box"><ul>{plist}</ul></div>
+<h3>Resultados por método</h3>
+<table>
+<tr><th>Método</th><th>f(x*)</th><th>Iter</th><th>Error ||∇f||</th><th>Punto mínimo</th><th>Clasificación</th><th>¿Convergió?</th></tr>
+{rows}
+</table>
+<p class="meta" style="margin-top:30px">Búsqueda de línea con condiciones de Wolfe (Armijo + curvatura).
+Para guardar como PDF: abre este archivo y usa Imprimir → Guardar como PDF.</p>
+</body></html>"""
+
+
+# ======================================================================
 # Lógica principal
 # ======================================================================
 if run:
@@ -516,6 +755,9 @@ if run:
                 for m in methods
             }
 
+        # Telemetría del HUD (estado en vivo de la corrida)
+        render_telemetry(results, method_key, n_vars, ls_label, compare_all, tol)
+
         tab_resumen, tab_graficos, tab_detalle = st.tabs(
             ["  Resumen", "  Gráficos", "  Detalle"]
         )
@@ -526,49 +768,90 @@ if run:
                 show_result_block(key, r, tol, obj)
                 st.divider()
 
-        # --- Pestaña 2: Gráficos (matplotlib con tema aplicado) ---
+        # --- Pestaña 2: Gráficos ---
         with tab_graficos:
-            with mpl_theme(pal):
-                gcol1, gcol2 = st.columns(2)
-                with gcol1:
-                    panel_title("Gráfico de convergencia", "chart")
-                    st.pyplot(plot_convergence(results))
-                with gcol2:
-                    if n_vars == 2:
-                        panel_title("Trayectoria de optimización", "route")
-                        st.pyplot(plot_contour(obj, results))
-                    else:
-                        st.info("La trayectoria sobre curvas de nivel solo se grafica para n = 2 variables.")
+            interactivo = st.toggle(
+                "Modo interactivo (Plotly: zoom · hover · rotar)",
+                value=True, key="plotly_toggle",
+                help="Activado: gráficos interactivos. Desactivado: figuras clásicas de matplotlib.",
+            )
 
-                # Tamaño de paso α — solo en backtracking
-                if ls_label == "backtracking":
-                    panel_title("Tamaño de paso α por iteración", "sliders")
+            gcol1, gcol2 = st.columns(2)
+            with gcol1:
+                panel_title("Gráfico de convergencia", "chart")
+                if interactivo:
+                    st.plotly_chart(plotly_convergence(results, pal), use_container_width=True)
+                else:
+                    with mpl_theme(pal):
+                        st.pyplot(plot_convergence(results))
+            with gcol2:
+                if n_vars == 2:
+                    panel_title("Trayectoria de optimización", "route")
+                    if interactivo:
+                        st.plotly_chart(plotly_contour(obj, results, pal), use_container_width=True)
+                    else:
+                        with mpl_theme(pal):
+                            st.pyplot(plot_contour(obj, results))
+                else:
+                    st.info("La trayectoria sobre curvas de nivel solo se grafica para n = 2 variables.")
+
+            # Tamaño de paso α — solo en backtracking (matplotlib)
+            if ls_label == "backtracking":
+                panel_title("Tamaño de paso α por iteración", "sliders")
+                with mpl_theme(pal):
                     st.pyplot(plot_step_sizes(results))
-                    st.caption("Muestra el α aceptado en cada iteración (parte en α₀ y baja por ρ si hace falta). "
-                               "Si comparas los 3 métodos, aparecen los tres.")
+                st.caption("Muestra el α aceptado en cada iteración (parte en α₀ y baja por ρ si hace falta). "
+                           "Si comparas los 3 métodos, aparecen los tres.")
 
-                # Mapa de cuencas de atracción (característica distintiva, solo n=2)
-                if show_basins:
-                    panel_title("Mapa de cuencas de atracción", "map")
-                    if n_vars != 2:
-                        st.info("El mapa de cuencas solo está disponible para funciones de 2 variables.")
-                    else:
-                        ls_kwargs = dict(c1=c1, c2=c2, cg_variant=cg_variant,
-                                         line_search=ls_label, alpha0=alpha0, rho=rho, sigma=sigma)
-                        with st.spinner("Corriendo el método desde cientos de puntos de partida..."):
+            # Mapa de cuencas de atracción (característica distintiva, solo n=2)
+            if show_basins:
+                panel_title("Mapa de cuencas de atracción", "map")
+                if n_vars != 2:
+                    st.info("El mapa de cuencas solo está disponible para funciones de 2 variables.")
+                else:
+                    ls_kwargs = dict(c1=c1, c2=c2, cg_variant=cg_variant,
+                                     line_search=ls_label, alpha0=alpha0, rho=rho, sigma=sigma)
+                    with st.spinner("Corriendo el método desde cientos de puntos de partida..."):
+                        with mpl_theme(pal):
                             fig_b, n_min = plot_basins(obj, minimize, method_key, ls_kwargs)
-                        st.pyplot(fig_b)
-                        st.caption(f"Cada color es una región cuyos puntos de partida terminan en el mismo "
-                                   f"mínimo (se encontraron {n_min}). El gris indica puntos que no convergieron. "
-                                   f"Método usado: {METHOD_NAMES[method_key]}.")
+                    st.pyplot(fig_b)
+                    st.caption(f"Cada color es una región cuyos puntos de partida terminan en el mismo "
+                               f"mínimo (se encontraron {n_min}). El gris indica puntos que no convergieron. "
+                               f"Método usado: {METHOD_NAMES[method_key]}.")
 
-        # --- Pestaña 3: Detalle (simbólico + historial + CSV) ---
+        # --- Pestaña 3: Detalle (simbólico + historial + CSV + reporte) ---
         with tab_detalle:
             panel_title("Gradiente y Hessiano simbólicos", "sigma")
             st.latex(r"f(x) = " + obj.latex_f())
             st.latex(r"\nabla f(x) = " + obj.latex_grad())
             st.latex(r"\nabla^2 f(x) = " + obj.latex_hess())
             st.divider()
+
+            panel_title("Reporte exportable", "download")
+            params = {
+                "Método": "3 métodos" if compare_all else METHOD_NAMES[method_key],
+                "Variables (n)": n_vars,
+                "Búsqueda de línea": {"wolfe": "Wolfe", "backtracking": "Backtracking",
+                                      "fixed": "Paso fijo"}[ls_label],
+                "Máx. iteraciones": int(max_iter), "Tolerancia": f"{tol:.1e}",
+                "α inicial / fijo": alpha0,
+            }
+            if ls_label == "wolfe":
+                params["c1 (Armijo)"] = f"{c1:.1e}"; params["c2 (curvatura)"] = c2
+            elif ls_label == "backtracking":
+                params["β (Armijo)"] = c1; params["ρ (reducción)"] = rho; params["σ"] = sigma
+            report = build_report_html(results, obj, expr_str.replace("\n", " ").strip(),
+                                       x0, params, pal)
+            st.download_button(
+                "Descargar reporte (HTML → imprimir a PDF)",
+                report.encode("utf-8"),
+                file_name=f"reporte_optimizacion_{datetime.now():%Y%m%d_%H%M}.html",
+                mime="text/html", key="dl_report",
+            )
+            st.caption("El reporte incluye función, parámetros y resultados por método. "
+                       "Ábrelo y usa Imprimir → Guardar como PDF para entregarlo.")
+            st.divider()
+
             panel_title("Historial completo de iteraciones", "list")
             for key, r in results.items():
                 show_history_block(key, r, n_vars)
@@ -577,7 +860,29 @@ if run:
         st.error(f"Ocurrió un error al procesar la función o los parámetros:\n\n`{e}`")
         st.caption("Revisa que la función use x1, x2, ... y sintaxis válida (ej: `x1**2 + sin(x2)`).")
 else:
-    st.info("Configura los datos en el panel lateral y presiona **Ejecutar optimización**.")
+    # ---- Pantalla de bienvenida (hero HUD con métricas vacías) ----
+    st.markdown(f"""
+    <div class="hero">
+      <h2>Encuentra el mínimo de cualquier función f: ℝⁿ → ℝ</h2>
+      <div class="lead">Tres métodos clásicos de optimización con búsqueda de línea de Wolfe,
+      clasificación del punto crítico por el Hessiano, mapa de cuencas de atracción y
+      gráficos interactivos. Configura el problema en el panel y ejecuta.</div>
+      <div class="pills">
+        <span class="pill">{icon("git")} Gradiente · Conjugado · Newton</span>
+        <span class="pill">{icon("target")} Condiciones de Wolfe</span>
+        <span class="pill">{icon("map")} Cuencas de atracción</span>
+        <span class="pill">{icon("chart")} Gráficos interactivos</span>
+        <span class="pill">{icon("download")} Reporte exportable</span>
+      </div>
+      <div class="ghost-metrics">
+        <div class="gm"><div class="k">f(x*) — valor mínimo</div><div class="v">— · —</div></div>
+        <div class="gm"><div class="k">Iteraciones</div><div class="v">—</div></div>
+        <div class="gm"><div class="k">Error final ||∇f||</div><div class="v">— e—</div></div>
+        <div class="gm"><div class="k">Estado</div><div class="v">en espera</div></div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("")
     with st.expander("Funciones de ejemplo para probar", expanded=True):
         st.markdown(
             "- **Cuadrática:** `(x1-1)**2 + (x2-2)**2`  → mínimo en (1, 2), x0 = `0,0`\n"
