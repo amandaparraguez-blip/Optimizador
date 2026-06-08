@@ -210,11 +210,18 @@ p, label, span, li {{ color: var(--text); }}
 .stButton > button {{
     background: linear-gradient(90deg, var(--accent), var(--accent2));
     color:#fff; border:none; border-radius:12px; padding:11px 20px; font-weight:700;
+    white-space: nowrap;
     box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 35%, transparent);
     transition: filter .15s, transform .05s;
 }}
 .stButton > button:hover {{ filter:brightness(1.1); color:#fff; }}
 .stButton > button:active {{ transform: translateY(1px); }}
+/* Botón secundario (Reiniciar): apagado, para no competir con el principal */
+.stButton > button[kind="secondary"] {{
+    background: var(--panel2); color: var(--muted); font-weight:600;
+    border:1px solid var(--border); box-shadow:none;
+}}
+.stButton > button[kind="secondary"]:hover {{ border-color: var(--accent); color: var(--text); }}
 .stDownloadButton > button {{
     background: var(--panel2); color: var(--text);
     border:1px solid var(--border); border-radius:10px; font-weight:600;
@@ -502,12 +509,9 @@ with st.sidebar:
                                    "según a qué mínimo llega cada uno. Puede tardar unos segundos.",
                               key="in_basins")
 
-    bcol1, bcol2 = st.columns([2, 1])
-    with bcol1:
-        run = st.button("Ejecutar optimización", type="primary", use_container_width=True)
-    with bcol2:
-        st.button("Reiniciar", use_container_width=True, on_click=reset_inputs,
-                  help="Restaura todos los campos a sus valores por defecto y limpia los resultados.")
+    run = st.button("Ejecutar optimización", type="primary", use_container_width=True)
+    st.button("↺  Reiniciar", use_container_width=True, on_click=reset_inputs,
+              help="Restaura todos los campos a sus valores por defecto y limpia los resultados.")
 
 
 # ======================================================================
@@ -626,9 +630,12 @@ def plotly_convergence(results, pal):
             marker=dict(size=5),
             hovertemplate="iter %{x}<br>||∇f|| = %{y:.3e}<extra></extra>",
         ))
-    lay = _plotly_layout(pal, "Convergencia: error ||∇f|| vs. iteraciones",
-                         "Número de iteraciones", "||∇f||  (escala log)")
+    lay = _plotly_layout(pal, "", "Número de iteraciones", "||∇f||  (escala log)")
+    lay["title"] = None
     lay["yaxis"]["type"] = "log"
+    lay["legend"] = dict(orientation="h", yanchor="bottom", y=1.02,
+                         xanchor="center", x=0.5, bgcolor="rgba(0,0,0,0)")
+    lay["margin"] = dict(l=60, r=20, t=44, b=50)
     fig.update_layout(**lay)
     return fig
 
@@ -678,12 +685,13 @@ def plotly_contour(obj, results, pal):
         x=[p0[0]], y=[p0[1]], mode="markers", name="Punto inicial",
         marker=dict(symbol="square", size=10, color=pal["mpl_text"]),
     ))
-    lay = _plotly_layout(
-        pal, "Trayectoria sobre curvas de nivel (interactivo)", "x1", "x2", height=540)
-    # Leyenda horizontal arriba para que no choque con la colorbar de la derecha
-    lay["legend"] = dict(orientation="h", yanchor="bottom", y=1.04,
-                         xanchor="left", x=0, bgcolor="rgba(0,0,0,0)")
-    lay["margin"] = dict(l=60, r=80, t=70, b=46)
+    lay = _plotly_layout(pal, "", "x1", "x2", height=560)
+    # Sin título interno (ya hay encabezado en la app). Leyenda horizontal arriba,
+    # con margen superior amplio para que no se monte sobre el área de ploteo.
+    lay["title"] = None
+    lay["legend"] = dict(orientation="h", yanchor="bottom", y=1.02,
+                         xanchor="center", x=0.5, bgcolor="rgba(0,0,0,0)")
+    lay["margin"] = dict(l=60, r=90, t=54, b=50)
     lay["hovermode"] = "closest"
     fig.update_layout(**lay)
     return fig
