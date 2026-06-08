@@ -363,6 +363,16 @@ def sec_label(name, n, icon_name):
 pal = current_palette()
 inject_css(pal)
 
+
+def reset_inputs():
+    """Restaura todos los campos a su valor por defecto y limpia los resultados.
+    Se ejecuta como callback ANTES del rerun: basta con borrar las keys de los
+    widgets para que vuelvan a tomar su `value` por defecto al re-renderizar."""
+    for k in list(st.session_state.keys()):
+        if k.startswith("in_") or k in ("plotly_toggle", "results", "last_run"):
+            del st.session_state[k]
+
+
 hcol1, hcol2 = st.columns([5, 1.2], vertical_alignment="center")
 with hcol1:
     is_dark = st.session_state.theme_mode == "dark"
@@ -400,38 +410,43 @@ with st.sidebar:
                 unsafe_allow_html=True)
 
     sec_label("Problema", 1, "function")
-    n_vars = st.number_input("Número de variables (n)", min_value=1, max_value=10, value=2, step=1)
+    n_vars = st.number_input("Número de variables (n)", min_value=1, max_value=10, value=2, step=1,
+                             key="in_n_vars")
     expr_str = st.text_area(
         "Función objetivo  f(x) =",
         value="100*(x2 - x1**2)**2 + (1 - x1)**2",
         height=100,
         help="Usa x1, x2, ...  •  `**` o `^` para potencias  •  sin, cos, exp, log, sqrt, tan. "
              "El cuadro crece y es redimensionable.",
+        key="in_expr",
     )
     x0_str = st.text_input(
         "Punto de partida  x0 =",
         value="-1.2, 1.0",
         help="Valores separados por comas. Debe tener exactamente n valores.",
+        key="in_x0",
     )
 
     st.divider()
     sec_label("Método", 2, "git")
     method_key = st.selectbox("Método de optimización", options=list(METHOD_NAMES.keys()),
-                              format_func=lambda k: METHOD_NAMES[k])
+                              format_func=lambda k: METHOD_NAMES[k], key="in_method")
 
     cg_variant = "PR"
     if method_key == "conjugate_gradient":
         cg_variant = st.radio("Variante de β", ["PR", "FR"],
                               format_func=lambda v: "Polak-Ribiere (PR+)" if v == "PR" else "Fletcher-Reeves (FR)",
-                              horizontal=True)
+                              horizontal=True, key="in_cg")
 
     st.divider()
     sec_label("Criterios de parada", 3, "target")
     col_a, col_b = st.columns(2)
     with col_a:
-        max_iter = st.number_input("Máx. iteraciones", min_value=1, max_value=100000, value=1000, step=100)
+        max_iter = st.number_input("Máx. iteraciones", min_value=1, max_value=100000, value=1000, step=100,
+                                   key="in_max_iter")
     with col_b:
-        tol = st.number_input("Tolerancia", min_value=1e-15, max_value=1.0, value=1e-6, format="%.1e")
+        tol = st.number_input("Tolerancia", min_value=1e-15, max_value=1.0, value=1e-6, format="%.1e",
+                              key="in_tol")
 
     st.divider()
     sec_label("Búsqueda de línea", 4, "ruler")
@@ -441,31 +456,34 @@ with st.sidebar:
         format_func=lambda v: {"wolfe": "Wolfe (1ra y 2da condición)",
                                "backtracking": "Backtracking (Armijo + factor de reducción)",
                                "fixed": "Paso fijo (α constante)"}[v],
+        key="in_ls",
     )
 
     alpha_label = "α (paso fijo)" if ls_label == "fixed" else "A₀ (paso inicial)"
     alpha0 = st.number_input(alpha_label, min_value=1e-6, max_value=100.0,
-                             value=1.0, step=0.01, format="%.4f")
+                             value=1.0, step=0.01, format="%.4f", key="in_alpha0")
 
     rho = 0.5
     sigma = 0.5
     if ls_label == "wolfe":
         col_c, col_d = st.columns(2)
         with col_c:
-            c1 = st.number_input("c1 (Armijo)", min_value=1e-6, max_value=0.5, value=1e-4, format="%.1e")
+            c1 = st.number_input("c1 (Armijo)", min_value=1e-6, max_value=0.5, value=1e-4,
+                                 format="%.1e", key="in_c1_wolfe")
         with col_d:
-            c2 = st.number_input("c2 (curvatura)", min_value=0.1, max_value=0.999, value=0.9, step=0.05)
+            c2 = st.number_input("c2 (curvatura)", min_value=0.1, max_value=0.999, value=0.9,
+                                 step=0.05, key="in_c2_wolfe")
         st.caption("Debe cumplirse 0 < c1 < c2 < 1. Sugerencia: c2=0.9 (Newton), c2=0.1 (CG).")
     elif ls_label == "backtracking":
         col_c, col_d = st.columns(2)
         with col_c:
             c1 = st.number_input("β (Armijo)", min_value=1e-6, max_value=0.9,
-                                 value=0.0001, step=0.05, format="%.4f")
+                                 value=0.0001, step=0.05, format="%.4f", key="in_beta_bt")
         with col_d:
             rho = st.number_input("ρ (factor de reducción)", min_value=0.05, max_value=0.95,
-                                  value=0.5, step=0.05)
+                                  value=0.5, step=0.05, key="in_rho_bt")
         sigma = st.number_input("σ (2ª condición de Wolfe, solo verificación)",
-                                min_value=0.0, max_value=0.999, value=0.5, step=0.05)
+                                min_value=0.0, max_value=0.999, value=0.5, step=0.05, key="in_sigma_bt")
         c2 = 0.9  # no se usa en backtracking, pero se mantiene por compatibilidad
         st.caption("Backtracking: reduce el paso multiplicándolo por ρ hasta cumplir Armijo (1ra condición). "
                    "El paso encontrado depende solo de β y ρ.")
@@ -478,11 +496,18 @@ with st.sidebar:
 
     st.divider()
     sec_label("Opciones", 5, "layers")
-    compare_all = st.checkbox("Comparar los 3 métodos", value=False)
+    compare_all = st.checkbox("Comparar los 3 métodos", value=False, key="in_compare")
     show_basins = st.checkbox("Mapa de cuencas de atracción (solo n=2)", value=False,
                               help="Corre el método desde una grilla de puntos y pinta el plano "
-                                   "según a qué mínimo llega cada uno. Puede tardar unos segundos.")
-    run = st.button("Ejecutar optimización", type="primary", use_container_width=True)
+                                   "según a qué mínimo llega cada uno. Puede tardar unos segundos.",
+                              key="in_basins")
+
+    bcol1, bcol2 = st.columns([2, 1])
+    with bcol1:
+        run = st.button("Ejecutar optimización", type="primary", use_container_width=True)
+    with bcol2:
+        st.button("Reiniciar", use_container_width=True, on_click=reset_inputs,
+                  help="Restaura todos los campos a sus valores por defecto y limpia los resultados.")
 
 
 # ======================================================================
@@ -629,7 +654,9 @@ def plotly_contour(obj, results, pal):
     fig = go.Figure()
     fig.add_trace(go.Contour(
         x=xs, y=ys, z=Z, colorscale="Viridis", opacity=0.92,
-        contours=dict(showlines=True), colorbar=dict(title="f(x)"),
+        contours=dict(showlines=True),
+        colorbar=dict(title=dict(text="f(x)", side="right"),
+                      len=0.85, y=0.5, yanchor="middle", thickness=14, x=1.02),
         hovertemplate="x1=%{x:.3f}<br>x2=%{y:.3f}<br>f=%{z:.4g}<extra></extra>",
     ))
     for i, (key, r) in enumerate(results.items()):
@@ -651,8 +678,14 @@ def plotly_contour(obj, results, pal):
         x=[p0[0]], y=[p0[1]], mode="markers", name="Punto inicial",
         marker=dict(symbol="square", size=10, color=pal["mpl_text"]),
     ))
-    fig.update_layout(**_plotly_layout(
-        pal, "Trayectoria sobre curvas de nivel (interactivo)", "x1", "x2", height=520))
+    lay = _plotly_layout(
+        pal, "Trayectoria sobre curvas de nivel (interactivo)", "x1", "x2", height=540)
+    # Leyenda horizontal arriba para que no choque con la colorbar de la derecha
+    lay["legend"] = dict(orientation="h", yanchor="bottom", y=1.04,
+                         xanchor="left", x=0, bgcolor="rgba(0,0,0,0)")
+    lay["margin"] = dict(l=60, r=80, t=70, b=46)
+    lay["hovermode"] = "closest"
+    fig.update_layout(**lay)
     return fig
 
 
@@ -734,6 +767,8 @@ Para guardar como PDF: abre este archivo y usa Imprimir → Guardar como PDF.</p
 # ======================================================================
 # Lógica principal
 # ======================================================================
+# Al pulsar "Ejecutar": calcular y guardar en session_state para que los
+# resultados PERSISTAN aunque luego se interactúe (toggle de tema/Plotly/tabs).
 if run:
     try:
         x0 = np.array([float(v.strip()) for v in x0_str.split(",")], dtype=float)
@@ -754,6 +789,31 @@ if run:
                             line_search=ls_label, alpha0=alpha0, rho=rho, sigma=sigma)
                 for m in methods
             }
+
+        # Guardar la corrida (resultados + contexto necesario para re-renderizar)
+        st.session_state.results = results
+        st.session_state.last_run = dict(
+            obj=obj, x0=x0, expr_str=expr_str, n_vars=n_vars, tol=tol,
+            method_key=method_key, ls_label=ls_label, compare_all=compare_all,
+            show_basins=show_basins, c1=c1, c2=c2, cg_variant=cg_variant,
+            alpha0=alpha0, rho=rho, sigma=sigma, max_iter=int(max_iter),
+        )
+    except Exception as e:
+        st.session_state.pop("results", None)
+        st.error(f"Ocurrió un error al procesar la función o los parámetros:\n\n`{e}`")
+        st.caption("Revisa que la función use x1, x2, ... y sintaxis válida (ej: `x1**2 + sin(x2)`).")
+
+# Render de resultados si existe una corrida guardada (persiste entre interacciones)
+if st.session_state.get("results"):
+    try:
+        ctx = st.session_state.last_run
+        results = st.session_state.results
+        obj = ctx["obj"]; x0 = ctx["x0"]; expr_str = ctx["expr_str"]
+        n_vars = ctx["n_vars"]; tol = ctx["tol"]; method_key = ctx["method_key"]
+        ls_label = ctx["ls_label"]; compare_all = ctx["compare_all"]
+        show_basins = ctx["show_basins"]; c1 = ctx["c1"]; c2 = ctx["c2"]
+        cg_variant = ctx["cg_variant"]; alpha0 = ctx["alpha0"]; rho = ctx["rho"]
+        sigma = ctx["sigma"]; max_iter = ctx["max_iter"]
 
         # Telemetría del HUD (estado en vivo de la corrida)
         render_telemetry(results, method_key, n_vars, ls_label, compare_all, tol)
@@ -857,8 +917,9 @@ if run:
                 show_history_block(key, r, n_vars)
 
     except Exception as e:
-        st.error(f"Ocurrió un error al procesar la función o los parámetros:\n\n`{e}`")
-        st.caption("Revisa que la función use x1, x2, ... y sintaxis válida (ej: `x1**2 + sin(x2)`).")
+        st.session_state.pop("results", None)
+        st.error(f"Ocurrió un error al mostrar los resultados:\n\n`{e}`")
+        st.caption("Pulsa Reiniciar y vuelve a ejecutar.")
 else:
     # ---- Pantalla de bienvenida (hero HUD con métricas vacías) ----
     st.markdown(f"""
